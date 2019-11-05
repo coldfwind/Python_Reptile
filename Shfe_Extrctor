@@ -1,0 +1,42 @@
+# -*- coding:utf-8 -*-
+import requests
+import pymongo
+import json
+import datetime
+
+
+#改日期
+timenow = datetime.datetime.now().strftime('%Y%m%d')
+# timenow = '20191031'
+
+url = 'http://www.shfe.com.cn/data/dailydata/kx/pm'+timenow+'.dat'
+response = requests.get(url)
+
+myclient = pymongo.MongoClient('mongodb:///')
+mydb = myclient['exDB']
+mycol = mydb['volume_position']
+
+data2=json.loads(response.text)
+bulk = mycol.initialize_ordered_bulk_op()
+count = 0
+
+for item in data2["o_cursor"]:
+    if item['RANK']!=-1 and item['RANK']!= 0 and item['RANK']!=999:
+        if item['PARTICIPANTABBR1']!='':
+            u = dict(日期 = timenow, 合约代码 =item['INSTRUMENTID'],交易所 = '上交所', 名次 = item['RANK'],期货公司 =item['PARTICIPANTABBR1'],当日值=item['CJ1'], 增减= item['CJ1_CHG'], 变量名='成交量')
+            bulk.insert(u)
+            count +=1
+        if item['PARTICIPANTABBR2']!='':
+            u1 = dict(日期=timenow, 合约代码=item['INSTRUMENTID'], 交易所='上交所', 名次=item['RANK'], 期货公司=item['PARTICIPANTABBR2'],
+                      当日值=item['CJ2'], 增减=item['CJ2_CHG'], 变量名='持买单量')
+            bulk.insert(u1)
+            count += 1
+        if item['PARTICIPANTABBR3'] != '':
+            
+            u2 = dict(日期=timenow, 合约代码=item['INSTRUMENTID'], 交易所='上交所', 名次=item['RANK'], 期货公司=item['PARTICIPANTABBR3'],当日值=item['CJ3'], 增减=item['CJ3_CHG'], 变量名='持卖单量')
+            bulk.insert(u2)
+            count += 1
+bulk.execute()
+print('上交所持仓排名统计数目：' + str(count))
+
+
