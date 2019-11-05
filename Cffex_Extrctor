@@ -46,7 +46,7 @@ def extractEachPage(url):
     s = sorted(content_list, key=lambda x: (x[0], int(x[3]), int(x[2])))
     return s
 def write2mongoDB(totaldata):
-    myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+    myclient = pymongo.MongoClient('mongodb:///')
     mydb = myclient['exDB']
     mycol = mydb['volume_position']
     bulk = mycol.initialize_ordered_bulk_op()
