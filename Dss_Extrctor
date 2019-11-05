@@ -1,0 +1,105 @@
+# -*- coding:utf-8 -*-
+import pymongo
+import re
+from selenium import webdriver
+from lxml import etree
+from selenium.webdriver.chrome.options import Options
+import json
+from requests_toolbelt import MultipartEncoder
+import requests
+import datetime
+
+myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+mydb = myclient['exDB']
+mycol = mydb['volume_position']
+
+chrome_options = Options()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--disable-gpu')
+driver = webdriver.Firefox()
+driver.maximize_window()
+driver1 = webdriver.Firefox()
+driver1.maximize_window()
+yeartext = str(datetime.datetime.now().year)
+monthtext = str(datetime.datetime.now().month)
+month = str(int(monthtext) -1)
+#day = datetime.datetime.now().day
+day = str(datetime.datetime.now().day).zfill(2)
+# day = '12'
+try:
+    driver.get(r"http://www.dce.com.cn/publicweb/quotesdata/memberDealPosiQuotes.html")
+    trade_date = driver.find_elements_by_xpath("//div//ul[@class = 'keyWord clearfix']//li[@class='keyWord_100']//input")
+    instruList = []
+    #textmod = {"memberDealPosiQuotes.variety":"a","memberDealPosiQuotes.trade_type":"0","year":"2018","month":"10","day":"05","contract.contract_id":"","contract.variety_id":"a","contract":""}
+    totalcount = 0
+    for i in trade_date:
+        st = re.findall(r'\'(.*?)\'', i.get_attribute('onclick'))[0]
+        instruList.append(st)
+        textmod = {"memberDealPosiQuotes.variety": st, "memberDealPosiQuotes.trade_type": "0", "year": yeartext,
+                   "month": month, "day": day, "contract.contract_id": 'all', "contract.variety_id": st, "contract": ""}
+        m=MultipartEncoder(textmod)
+        textmod = json.dumps(textmod).encode(encoding='utf-8')
+        r = requests.post('http://www.dce.com.cn/publicweb/quotesdata/memberDealPosiQuotes.html', data=m,
+                          headers={'Content-Type': m.content_type})
+        indexs =[i.end() for i in re.finditer("javascript:setContract_id",r.text)]
+
+        for index in indexs:
+            instrument = r.text[(index+2):(index+8)]
+            if 'all' not in instrument:
+                remove_index =instrument.find("'")
+                real_instrument = ''
+                if remove_index!=-1:
+                    real_instrument = instrument[0:remove_index]
+                else:
+                    real_instrument = instrument
+                datainstru = {"memberDealPosiQuotes.variety": st, "memberDealPosiQuotes.trade_type": "0", "year": yeartext,
+                   "month": month, "day": day, "contract.contract_id": real_instrument, "contract.variety_id": st, "contract": ""}
+                m2 = MultipartEncoder(datainstru)
+                rx = requests.post('http://www.dce.com.cn/publicweb/quotesdata/memberDealPosiQuotes.html', data=m2,
+                                  headers={'Content-Type': m2.content_type})
+                #print(real_instrument)
+                root = etree.HTML(rx.text)
+
+                link = root.xpath("//tr/td/text()")
+                #print(link[7:])
+                result = []
+                step = 12
+                for l in link[7:]:
+                    if l == '总计':
+                        break
+                    elif l == '\xa0':
+                        result.append(None)
+                        continue
+                    else:
+
+                        result.append(l)
+
+                b = [result[i:i + step] for i in range(0, len(result), step)]
+                bulk = mycol.initialize_ordered_bulk_op()
+
+                for m in range(len(b)):
+                    if b[m][0] is not None:
+                        u = dict(日期=yeartext + monthtext.zfill(2) + day, 合约代码=real_instrument, 交易所='大商所', 名次=b[m][0],
+                             期货公司=b[m][1],
+                             当日值=b[m][2], 增减=b[m][3], 变量名='成交量')
+                        totalcount+=1
+                        bulk.insert(u)
+                    if b[m][4] is not None:
+                        u = dict(日期=yeartext + monthtext.zfill(2) + day, 合约代码=real_instrument, 交易所='大商所', 名次=b[m][4],
+                                 期货公司=b[m][5],
+                                 当日值=b[m][6], 增减=b[m][7], 变量名='持买单量')
+                        totalcount += 1
+                        bulk.insert(u)
+                    if b[m][8] is not None:
+                        u = dict(日期=yeartext + monthtext.zfill(2) + day, 合约代码=real_instrument, 交易所='大商所', 名次=b[m][8],
+                                 期货公司=b[m][9],
+                                 当日值=b[m][10], 增减=b[m][11], 变量名='持卖单量')
+                        totalcount += 1
+                        bulk.insert(u)
+                bulk.execute()
+
+    print('大连商品交易所持仓排名统计数目：' + str(totalcount))
+
+finally:
+    driver.quit()
+
