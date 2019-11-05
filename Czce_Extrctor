@@ -16,7 +16,7 @@ root = etree.HTML(result.text)
 contentlist =root.xpath("//td//text()")
 step = 11
 def extractEachPage():
-    myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+    myclient = pymongo.MongoClient('mongodb:///')
     mydb = myclient['exDB']
     mycol = mydb['volume_position']
     final_result = getchicang(contentlist)
