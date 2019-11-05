@@ -1,0 +1,84 @@
+import pymongo
+from lxml import etree
+import datetime
+import requests
+from xml.etree.ElementTree import fromstring, ElementTree
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
+
+def getProductList(baseurl1):
+    driver = webdriver.Firefox()
+    driver.maximize_window()
+    #保存股指名称
+    exponent_list = []
+    try:
+        driver.get(baseurl1)
+        list1 = driver.find_elements_by_xpath('//option')
+        for i in list1:
+            exponent_list.append(i.text)
+        return exponent_list
+    finally:
+        driver.quit()
+
+def extractEachPage(url):
+    yy =requests.get(url)
+    tree = ElementTree(fromstring(yy.text))
+    content_list = []
+    for data in tree.findall('data'):
+        temp_list = []
+        instrumentid = data.find('instrumentid').text
+        tradingday = data.find('tradingday').text
+        datatypeid = data.find('datatypeid').text
+        rank = data.find('rank').text
+        shortname = data.find('shortname').text
+        volume = data.find('volume').text
+        varvolume = data.find('varvolume').text
+        partyid = data.find('partyid').text
+        temp_list.append(instrumentid)
+        temp_list.append(tradingday)
+        temp_list.append(datatypeid)
+        temp_list.append(rank)
+        temp_list.append(shortname)
+        temp_list.append(volume)
+        temp_list.append(varvolume)
+        temp_list.append(partyid)
+        content_list.append(temp_list)
+    s = sorted(content_list, key=lambda x: (x[0], int(x[3]), int(x[2])))
+    return s
+def write2mongoDB(totaldata):
+    myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+    mydb = myclient['exDB']
+    mycol = mydb['volume_position']
+    bulk = mycol.initialize_ordered_bulk_op()
+    for item in totaldata:
+        variety = ''
+        if item[2] == '0':
+            variety = '成交量'
+        elif item[2] == '1':
+            variety = '持买单量'
+        elif item[2] == '2':
+            variety ='持卖单量'
+        u = dict(日期=year_month+days, 合约代码=item[0], 交易所='中金所', 名次=item[3], 期货公司=item[4], 当日值=item[5],
+                 增减=item[6], 变量名=variety)
+        bulk.insert(u)
+    bulk.execute()
+BASEURL = 'http://www.cffex.com.cn/ccpm/'
+INSTRUBASE_URL = 'http://www.cffex.com.cn/sj/ccpm/'
+ins_list = getProductList(BASEURL)
+timenow = datetime.datetime.now()
+
+#改日期
+year_month = timenow.strftime('%Y%m')
+day = str(timenow.day)
+# year_month = '201910'
+# day = '31'
+
+days = day.zfill(2)
+total_list = []
+for ins in ins_list:
+    url = INSTRUBASE_URL+year_month+'/'+days+'/'+ins+'.xml'
+    temp1 = extractEachPage(url)
+    total_list += temp1
+print('中金所持仓排名统计数目:'+str(len(total_list)))
+
+write2mongoDB(total_list)
