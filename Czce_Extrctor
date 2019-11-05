@@ -1,0 +1,90 @@
+# -*- coding:utf-8 -*-
+import pymongo
+from lxml import etree
+import requests
+import datetime
+timenow = datetime.datetime.now()
+year = str(timenow.year)
+#改日期
+time1 = timenow.strftime("%Y%m%d")
+# time1 = '20191015'
+
+url = 'http://www.czce.com.cn/cn/DFSStaticFiles/Future/'+year+'/'+time1+'/FutureDataHolding.htm'
+result = requests.get(url)
+result.encoding = 'utf-8'
+root = etree.HTML(result.text)
+contentlist =root.xpath("//td//text()")
+step = 11
+def extractEachPage():
+    myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+    mydb = myclient['exDB']
+    mycol = mydb['volume_position']
+    final_result = getchicang(contentlist)
+    b = [final_result[i:i + step] for i in range(0, len(final_result), step)]
+    bulk = mycol.initialize_ordered_bulk_op()
+    totalcount = 0
+    for z in range(len(b)):
+        variety = ''
+        if b[z][2] !='-':
+            u = dict(日期=time1, 合约代码=b[z][0], 交易所='郑商所', 名次=b[z][1],
+                     期货公司=b[z][2],
+                     当日值=b[z][3], 增减=b[z][4], 变量名='成交量')
+            totalcount+=1
+            bulk.insert(u)
+
+        if b[z][5] !='-':
+            u = dict(日期=time1, 合约代码=b[z][0], 交易所='郑商所', 名次=b[z][1],
+                     期货公司=b[z][5],
+                     当日值=b[z][6], 增减=b[z][7], 变量名='持买单量')
+            totalcount+=1
+            bulk.insert(u)
+        if b[z][8] !='-':
+            u = dict(日期=time1, 合约代码=b[z][0], 交易所='郑商所', 名次=b[z][1],
+                     期货公司=b[z][8],
+                     当日值=b[z][9], 增减=b[z][10], 变量名='持卖单量')
+            totalcount+=1
+            bulk.insert(u)
+
+    bulk.execute()
+    print('郑商所持仓排名统计数目：'+str(totalcount))
+def getchicang(contentlist1):
+    isInstrument = False
+    chicanglist = []
+    count = 0
+    countrow = -1
+    InstrumentName = ''
+    for item in contentlist1:
+        if '\xa0' in item:
+            item = item.replace('\xa0', '')
+        if '合约：' in item:
+            isInstrument = True
+        if '品种：' in item:
+            isInstrument = False
+        if '合计' in item:
+            isInstrument =False
+        if isInstrument:
+            if '合约：' in item:
+                count = 0
+                InstrumentName = item.split('\n')[0].split('：')[1]
+
+                #print(InstrumentName)
+            else:
+                count+=1
+                if count<=10:
+                    continue
+                else:
+                    countrow += 1
+                    if countrow %10==0:
+                        chicanglist.append(InstrumentName)
+                        chicanglist.append(item)
+                        #print(InstrumentName)
+                       # print(item)
+                    else:
+                        chicanglist.append(item)
+                       # print(item)
+    return chicanglist
+
+extractEachPage()
+
+
+
