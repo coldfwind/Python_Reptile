@@ -9,7 +9,7 @@ from requests_toolbelt import MultipartEncoder
 import requests
 import datetime
 
-myclient = pymongo.MongoClient('mongodb://106.14.239.160:60349/')
+myclient = pymongo.MongoClient('mongodb:///')
 mydb = myclient['exDB']
 mycol = mydb['volume_position']
 
